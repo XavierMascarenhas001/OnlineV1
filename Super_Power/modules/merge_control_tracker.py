@@ -1,120 +1,376 @@
+import streamlit as st
 import pandas as pd
-from tkinter import Tk, filedialog
+from io import BytesIO
 
-# -----------------------------
-# FILE SELECTION
-# -----------------------------
-root = Tk()
-root.withdraw()
+# =========================================================
+#                    MAIN FUNCTION
+# =========================================================
 
-aggregated_file = filedialog.askopenfilename(title="Select CF_aggregated.parquet")
-tracker_file = filedialog.askopenfilename(title="Select Project Tracker.parquet")
-misc_file = filedialog.askopenfilename(title="Select miscelaneous.parquet")
+def run_merge_control_tracker():
 
-output_parquet_file = filedialog.asksaveasfilename(
-    title="Save Master Parquet",
-    defaultextension=".parquet"
-)
+    st.header("🔗 Merge Control Tracker")
 
-# -----------------------------
-# LOAD DATA
-# -----------------------------
-agg_df = pd.read_parquet(aggregated_file)
-tracker_df = pd.read_parquet(tracker_file)
-misc_df = pd.read_parquet(misc_file)
+    # =========================================================
+    #                    FILE UPLOADERS
+    # =========================================================
 
-# -----------------------------
-# CLEAN COLUMN NAMES
-# -----------------------------
-for df in [agg_df, tracker_df, misc_df]:
-    df.columns = df.columns.str.strip().str.lower()
+    aggregated_file = st.file_uploader(
+        "Select CF_aggregated.parquet",
+        type=["parquet"],
+        key="agg_parquet"
+    )
 
-# -----------------------------
-# NORMALIZE KEYS
-# -----------------------------
-key_cols = ['shire', 'project', 'segmentcode']
+    tracker_file = st.file_uploader(
+        "Select Project Tracker.parquet",
+        type=["parquet"],
+        key="tracker_parquet"
+    )
 
-for col in key_cols:
-    if col in agg_df.columns:
-        agg_df[col] = agg_df[col].astype(str).str.strip().str.lower()
-    if col in tracker_df.columns:
-        tracker_df[col] = tracker_df[col].astype(str).str.strip().str.lower()
+    misc_file = st.file_uploader(
+        "Select miscelaneous.parquet",
+        type=["parquet"],
+        key="misc_parquet"
+    )
 
-# text normalization
-if 'segment' in agg_df.columns:
-    agg_df['segment'] = agg_df['segment'].astype(str).str.lower()
+    # =========================================================
+    #                    PROCESS BUTTON
+    # =========================================================
 
-if 'job name' in tracker_df.columns:
-    tracker_df['job name'] = tracker_df['job name'].astype(str).str.lower()
+    if st.button("🚀 Run Merge"):
 
-# ensure output columns exist
-agg_df['pid'] = None
-agg_df['po'] = None
-agg_df['material_code'] = None
+        # -----------------------------
+        # VALIDATION
+        # -----------------------------
 
-# -----------------------------
-# GROUP TRACKER FOR FAST LOOKUP
-# -----------------------------
-tracker_groups = tracker_df.groupby(['shire', 'project', 'segmentcode'])
+        if not aggregated_file:
+            st.warning("Please upload CF_aggregated.parquet")
+            st.stop()
 
-# -----------------------------
-# MATCH PID + PO LOGIC
-# -----------------------------
-for i, row in agg_df.iterrows():
+        if not tracker_file:
+            st.warning("Please upload Project Tracker.parquet")
+            st.stop()
 
-    key = (row.get('shire'), row.get('project'), row.get('segmentcode'))
+        if not misc_file:
+            st.warning("Please upload miscelaneous.parquet")
+            st.stop()
 
-    if key not in tracker_groups.groups:
-        continue
+        # =========================================================
+        #                    LOAD DATA
+        # =========================================================
 
-    subset = tracker_groups.get_group(key)
-    segment_text = str(row.get('segment', ''))
+        try:
+            agg_df = pd.read_parquet(aggregated_file)
+            tracker_df = pd.read_parquet(tracker_file)
+            misc_df = pd.read_parquet(misc_file)
 
-    for _, trow in subset.iterrows():
+            st.success("✅ Files loaded successfully")
 
-        job_name = str(trow.get('job name', '')).strip()
+        except Exception as e:
+            st.error(f"❌ Error loading parquet files: {e}")
+            st.stop()
 
-        if job_name and job_name in segment_text:
-            agg_df.at[i, 'pid'] = trow.get('pid')
-            agg_df.at[i, 'po'] = trow.get('po')
-            break
+        # =========================================================
+        #                    CLEAN COLUMN NAMES
+        # =========================================================
 
-# -----------------------------
-# MATERIAL CODE FROM MISC FILE
-# -----------------------------
-if 'item' in agg_df.columns and 'column_1' in misc_df.columns and 'column_3' in misc_df.columns:
+        for df in [agg_df, tracker_df, misc_df]:
+            df.columns = df.columns.str.strip().str.lower()
 
-    agg_df['item'] = agg_df['item'].astype(str).str.strip().str.lower()
-    misc_df['column_1'] = misc_df['column_1'].astype(str).str.strip().str.lower()
+        # =========================================================
+        #                    NORMALIZE KEYS
+        # =========================================================
 
-    item_to_column_k = misc_df.set_index('column_1')['column_3'].to_dict()
-    item_to_column_2 = misc_df.set_index('column_1')['column_2'].to_dict()
+        key_cols = ['shire', 'project', 'segmentcode']
 
-    agg_df['material_code'] = agg_df['item'].map(item_to_column_k)
-    agg_df['MD Poling'] = agg_df['item'].map(item_to_column_2)
+        for col in key_cols:
 
-# -----------------------------
-# FINAL COLUMN ORDER FIX
-# -----------------------------
-def move_before(df, target, before):
-    cols = list(df.columns)
-    if target in cols and before in cols:
-        cols.remove(target)
-        idx = cols.index(before)
-        cols.insert(idx, target)
-        return df[cols]
-    return df
+            if col in agg_df.columns:
+                agg_df[col] = (
+                    agg_df[col]
+                    .astype(str)
+                    .str.strip()
+                    .str.lower()
+                )
 
-# ensure correct order: material_code before PID and PO
-agg_df = move_before(agg_df, 'material_code', 'pid')
-agg_df = move_before(agg_df, 'po', 'pid')
-cols = [c for c in agg_df.columns if c != 'MD Poling'] + ['MD Poling']
-agg_df = agg_df[cols]
+            if col in tracker_df.columns:
+                tracker_df[col] = (
+                    tracker_df[col]
+                    .astype(str)
+                    .str.strip()
+                    .str.lower()
+                )
 
-# -----------------------------
-# SAVE OUTPUTS
-# -----------------------------
-agg_df.to_parquet(output_parquet_file, index=False)
-agg_df.to_excel(output_parquet_file.replace(".parquet", ".xlsx"), index=False)
+        # -----------------------------
+        # TEXT NORMALIZATION
+        # -----------------------------
 
-print("Done!")
+        if 'segment' in agg_df.columns:
+            agg_df['segment'] = (
+                agg_df['segment']
+                .astype(str)
+                .str.lower()
+            )
+
+        if 'job name' in tracker_df.columns:
+            tracker_df['job name'] = (
+                tracker_df['job name']
+                .astype(str)
+                .str.lower()
+            )
+
+        # =========================================================
+        #                    CREATE OUTPUT COLUMNS
+        # =========================================================
+
+        if 'pid' not in agg_df.columns:
+            agg_df['pid'] = None
+
+        if 'po' not in agg_df.columns:
+            agg_df['po'] = None
+
+        if 'material_code' not in agg_df.columns:
+            agg_df['material_code'] = None
+
+        # =========================================================
+        #                    GROUP TRACKER
+        # =========================================================
+
+        try:
+            tracker_groups = tracker_df.groupby(
+                ['shire', 'project', 'segmentcode']
+            )
+
+        except Exception as e:
+            st.error(f"❌ Error grouping tracker data: {e}")
+            st.stop()
+
+        # =========================================================
+        #                    MATCH PID + PO
+        # =========================================================
+
+        progress_bar = st.progress(0)
+
+        for i, row in agg_df.iterrows():
+
+            key = (
+                row.get('shire'),
+                row.get('project'),
+                row.get('segmentcode')
+            )
+
+            if key not in tracker_groups.groups:
+                progress_bar.progress((i + 1) / len(agg_df))
+                continue
+
+            subset = tracker_groups.get_group(key)
+
+            segment_text = str(
+                row.get('segment', '')
+            ).strip().lower()
+
+            for _, trow in subset.iterrows():
+
+                job_name = str(
+                    trow.get('job name', '')
+                ).strip().lower()
+
+                if job_name and job_name in segment_text:
+
+                    agg_df.at[i, 'pid'] = trow.get('pid')
+                    agg_df.at[i, 'po'] = trow.get('po')
+
+                    break
+
+            progress_bar.progress((i + 1) / len(agg_df))
+
+        # =========================================================
+        #                    MATERIAL CODE
+        # =========================================================
+
+        try:
+
+            required_cols = [
+                'item',
+                'column_1',
+                'column_2',
+                'column_3'
+            ]
+
+            missing_cols = []
+
+            for col in required_cols:
+
+                if (
+                    col not in agg_df.columns
+                    and col == 'item'
+                ):
+                    missing_cols.append(col)
+
+                if (
+                    col not in misc_df.columns
+                    and col != 'item'
+                ):
+                    missing_cols.append(col)
+
+            if missing_cols:
+
+                st.warning(
+                    f"⚠️ Missing columns: {missing_cols}"
+                )
+
+            else:
+
+                agg_df['item'] = (
+                    agg_df['item']
+                    .astype(str)
+                    .str.strip()
+                    .str.lower()
+                )
+
+                misc_df['column_1'] = (
+                    misc_df['column_1']
+                    .astype(str)
+                    .str.strip()
+                    .str.lower()
+                )
+
+                item_to_column_3 = (
+                    misc_df
+                    .set_index('column_1')['column_3']
+                    .to_dict()
+                )
+
+                item_to_column_2 = (
+                    misc_df
+                    .set_index('column_1')['column_2']
+                    .to_dict()
+                )
+
+                agg_df['material_code'] = (
+                    agg_df['item']
+                    .map(item_to_column_3)
+                )
+
+                agg_df['MD Poling'] = (
+                    agg_df['item']
+                    .map(item_to_column_2)
+                )
+
+                st.success("✅ Material mapping completed")
+
+        except Exception as e:
+            st.error(f"❌ Material mapping error: {e}")
+
+        # =========================================================
+        #                    COLUMN ORDER
+        # =========================================================
+
+        def move_before(df, target, before):
+
+            cols = list(df.columns)
+
+            if target in cols and before in cols:
+
+                cols.remove(target)
+
+                idx = cols.index(before)
+
+                cols.insert(idx, target)
+
+                return df[cols]
+
+            return df
+
+        agg_df = move_before(
+            agg_df,
+            'material_code',
+            'pid'
+        )
+
+        agg_df = move_before(
+            agg_df,
+            'po',
+            'pid'
+        )
+
+        if 'MD Poling' in agg_df.columns:
+
+            cols = [
+                c for c in agg_df.columns
+                if c != 'MD Poling'
+            ] + ['MD Poling']
+
+            agg_df = agg_df[cols]
+
+        # =========================================================
+        #                    PREVIEW
+        # =========================================================
+
+        st.success("✅ Merge completed")
+
+        st.subheader("📋 Preview")
+
+        st.dataframe(
+            agg_df.head(50),
+            use_container_width=True
+        )
+
+        # =========================================================
+        #                    EXCEL OUTPUT
+        # =========================================================
+
+        excel_buffer = BytesIO()
+
+        with pd.ExcelWriter(
+            excel_buffer,
+            engine="xlsxwriter"
+        ) as writer:
+
+            agg_df.to_excel(
+                writer,
+                index=False,
+                sheet_name="Merged"
+            )
+
+        excel_buffer.seek(0)
+
+        st.download_button(
+            label="📥 Download Excel",
+            data=excel_buffer,
+            file_name="master_output.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+        # =========================================================
+        #                    PARQUET OUTPUT
+        # =========================================================
+
+        parquet_buffer = BytesIO()
+
+        parquet_df = agg_df.copy()
+
+        for col in parquet_df.select_dtypes(
+            include=['object']
+        ).columns:
+
+            parquet_df[col] = (
+                parquet_df[col]
+                .astype(str)
+            )
+
+        parquet_df.to_parquet(
+            parquet_buffer,
+            index=False
+        )
+
+        parquet_buffer.seek(0)
+
+        st.download_button(
+            label="📥 Download Parquet",
+            data=parquet_buffer,
+            file_name="master_output.parquet",
+            mime="application/octet-stream"
+        )
+
+    else:
+        st.info("Upload the required parquet files and click Run Merge")
