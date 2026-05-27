@@ -1,6 +1,6 @@
 import streamlit as st
 
-from modules.Control_file_master import run_Control_file_master
+from modules.control_file_master import run_control_file_master
 from modules.project_tracker import run_project_tracker
 from modules.merge_control_tracker import run_merge_control_tracker
 from modules.outputs import run_outputs
