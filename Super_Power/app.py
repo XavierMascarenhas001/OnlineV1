@@ -1,11 +1,11 @@
 import streamlit as st
 
-from .control_file_master import run_control_file_master
-from .project_tracker import run_project_tracker
-from .merge_control_tracker import run_merge_control_tracker
-from .outputs import run_outputs
-from .target_price_reader import run_target_price_reader
-from .workbank import run_workbank
+from Super_Power.modules.control_file_master import run_control_file_master
+from Super_Power.modules.project_tracker import run_project_tracker
+from Super_Power.modules.merge_control_tracker import run_merge_control_tracker
+from Super_Power.modules.outputs import run_outputs
+from Super_Power.modules.target_price_reader import run_target_price_reader
+from Super_Power.modules.workbank import run_workbank
 
 st.set_page_config(page_title="Super Power", layout="wide")
 
