@@ -7,12 +7,12 @@ from modules.outputs import run_outputs
 from modules.target_price_reader import run_target_price_reader
 from modules.workbank import run_workbank
 
-st.set_page_config(page_title="Operations Toolkit", layout="wide")
+st.set_page_config(page_title="Super Power", layout="wide")
 
-st.title("📊 Operations Toolkit")
+st.title("⚡ Super Power System")
 
-tool = st.sidebar.radio(
-    "Select Tool",
+option = st.sidebar.selectbox(
+    "Select Module",
     [
         "Control File Master",
         "Project Tracker",
@@ -23,20 +23,20 @@ tool = st.sidebar.radio(
     ]
 )
 
-if tool == "Control File Master":
+if option == "Control File Master":
     run_control_file_master()
 
-elif tool == "Project Tracker":
+elif option == "Project Tracker":
     run_project_tracker()
 
-elif tool == "Merge Control Tracker":
+elif option == "Merge Control Tracker":
     run_merge_control_tracker()
 
-elif tool == "Outputs":
+elif option == "Outputs":
     run_outputs()
 
-elif tool == "Target Price Reader":
+elif option == "Target Price Reader":
     run_target_price_reader()
 
-elif tool == "Workbank":
+elif option == "Workbank":
     run_workbank()
