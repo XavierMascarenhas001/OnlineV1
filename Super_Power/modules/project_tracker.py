@@ -1,25 +1,21 @@
+import streamlit as st
 import pandas as pd
-import tkinter as tk
-from tkinter import filedialog
 import os
+from io import BytesIO
 
-# Hide root Tkinter window
-root = tk.Tk()
-root.withdraw()
+# =========================================================
+# STREAMLIT UI
+# =========================================================
 
-# Select input Excel file
-file_path = filedialog.askopenfilename(
-    title="Select Excel File",
-    filetypes=[("Excel files", "*.xlsx")]
+st.title("📊 Workbank Generator")
+
+uploaded_file = st.file_uploader(
+    "Upload Excel File",
+    type=["xlsx"]
 )
 
-if not file_path:
-    raise Exception("No file selected.")
-
-# Sheets to process
 sheets = ["Ayrshire", "Lanark", "Glasgow"]
 
-# Columns we want (by name)
 columns_needed = {
     "Scope": "Scope",
     "Job Name": "job name",
@@ -29,65 +25,104 @@ columns_needed = {
     "PO": "PO"
 }
 
-all_data = []
+# =========================================================
+# PROCESS BUTTON
+# =========================================================
 
-for sheet in sheets:
-    try:
-        df = pd.read_excel(file_path, sheet_name=sheet, header=1)
+if st.button("🚀 Run Workbank Processing"):
 
-        df.columns = df.columns.str.strip()
+    if not uploaded_file:
+        st.warning("Please upload a file first.")
+        st.stop()
 
-        selected_cols = {}
-        for col in df.columns:
-            col_lower = col.lower()
-            for key, val in columns_needed.items():
-                if val.lower() == col_lower:
-                    selected_cols[col] = key
+    all_data = []
 
-        df = df[list(selected_cols.keys())]
-        df.rename(columns=selected_cols, inplace=True)
+    for sheet in sheets:
 
-        # Rename columns as requested
-        df.rename(columns={
-            "Scope": "Project",
-            "Circuit": "SegmentCode"
-        }, inplace=True)
+        try:
+            df = pd.read_excel(uploaded_file, sheet_name=sheet, header=1)
 
-        # Add shire column (lowercase)
-        df["shire"] = sheet
+            df.columns = df.columns.str.strip()
 
-        all_data.append(df)
+            selected_cols = {}
 
-    except Exception as e:
-        print(f"Skipping sheet {sheet}: {e}")
+            for col in df.columns:
+                col_lower = col.lower()
 
-final_df = pd.concat(all_data, ignore_index=True)
+                for key, val in columns_needed.items():
+                    if val.lower() == col_lower:
+                        selected_cols[col] = key
 
-# Fix Parquet type issues
-# Fix Parquet type issues
-for col in final_df.columns:
-    if final_df[col].dtype == "object":
-        final_df[col] = final_df[col].astype("string")
+            if not selected_cols:
+                st.warning(f"No matching columns in {sheet}")
+                continue
 
-# 👉 Move "shire" to first column
-cols = list(final_df.columns)
-cols.insert(0, cols.pop(cols.index("shire")))
-final_df = final_df[cols]
+            df = df[list(selected_cols.keys())]
+            df.rename(columns=selected_cols, inplace=True)
 
-# Select output folder
-output_folder = filedialog.askdirectory(title="Select Output Folder")
+            df.rename(columns={
+                "Scope": "Project",
+                "Circuit": "SegmentCode"
+            }, inplace=True)
 
-if not output_folder:
-    raise Exception("No output folder selected.")
+            df["shire"] = sheet
 
-# Output paths (renamed to workbank)
-excel_output = os.path.join(output_folder, "workbank.xlsx")
-parquet_output = os.path.join(output_folder, "workbank.parquet")
+            all_data.append(df)
 
-# Save files
-final_df.to_excel(excel_output, index=False)
-final_df.to_parquet(parquet_output, index=False)
+            st.success(f"Loaded {sheet}: {len(df)} rows")
 
-print("Files saved successfully!")
-print(f"Excel: {excel_output}")
-print(f"Parquet: {parquet_output}")
+        except Exception as e:
+            st.error(f"Skipping sheet {sheet}: {e}")
+
+    if not all_data:
+        st.error("No data loaded.")
+        st.stop()
+
+    final_df = pd.concat(all_data, ignore_index=True)
+
+    # =====================================================
+    # FIX TYPES FOR PARQUET
+    # =====================================================
+
+    for col in final_df.columns:
+        if final_df[col].dtype == "object":
+            final_df[col] = final_df[col].astype("string")
+
+    # Move shire first
+    cols = list(final_df.columns)
+
+    if "shire" in cols:
+        cols.insert(0, cols.pop(cols.index("shire")))
+
+    final_df = final_df[cols]
+
+    # =====================================================
+    # DOWNLOADS
+    # =====================================================
+
+    excel_buffer = BytesIO()
+    final_df.to_excel(excel_buffer, index=False)
+    excel_buffer.seek(0)
+
+    parquet_buffer = BytesIO()
+    final_df.to_parquet(parquet_buffer, index=False)
+    parquet_buffer.seek(0)
+
+    st.success("✅ Processing complete")
+
+    st.download_button(
+        "📥 Download Excel (Workbank)",
+        data=excel_buffer,
+        file_name="workbank.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    st.download_button(
+        "📥 Download Parquet (Workbank)",
+        data=parquet_buffer,
+        file_name="workbank.parquet",
+        mime="application/octet-stream"
+    )
+
+else:
+    st.info("Upload file and click Run Processing")
